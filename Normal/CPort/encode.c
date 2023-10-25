@@ -102,7 +102,7 @@ int main(void) {
     // ------------------------ Setup --------------------
     char in_filename[] = "../../Samples/ImperialMarch60.wav"; // Input filename
     char out_filename[] = "../../Outputs/c_out.wav"; // Output filename
-    char message[] = "This is an embedded message"; //Message 
+    char message[] = "My name is Slim Shady"; //Message 
     
     // ---------------------- Load WAV -------------------
     SNDFILE *infile, *outfile;
@@ -142,19 +142,14 @@ int main(void) {
     fftw_plan plan = fftw_plan_dft_r2c_1d(n_frames, data, out, FFTW_ESTIMATE); // Create fftw execution plan
     fftw_execute(plan); // Execute fftw plan
 
-    for (int i = 0; i < 20; i++) {
-        printf("%d ,", data[i]);
-    }
-    printf("\n");
-    printf("----------------\n");    
-    for(int i = 0; i < 10; i++){
-        printf("%.3f + %.3fj\n", out[i][0], out[i][1]);
-    }
-
     // ffshift
     fftw_complex *shifted = ffshift(out, n_frames);
 
-    // ------------------ Embed msg ----------------
+    printf("----------------\n");
+    for(int i = n_frames/2; i < n_frames/2+10; i++){
+        printf("%.3f + %.3fj\n", shifted[i][0], shifted[i][1]);
+    }
+    // ------------- Embed meesage ----------------
     // To binary
     char *binary_msg = stringToBinary(message);
     printf("Message n_bits: %d\n", strlen(binary_msg));
@@ -170,13 +165,6 @@ int main(void) {
 
     double *X_abs = magnitude(shifted, n_frames);
     double *X_angle = angle(shifted, n_frames);
-
-    /*
-    printf("----------------\n");    
-    for(int i = 0; i < 10; i++){
-        printf("%.3f + %.3fj , m: %.3f, a: %.3f\n", shifted[i][0], shifted[i][1], X_abs[i], X_angle[i]);
-    }
-    */
 
     int start_embed = centre - embedding_freq - p;
     int end_embed = centre - embedding_freq;
@@ -209,8 +197,10 @@ int main(void) {
     }
 
     // define range for adding embeddings back to final fft vec with embeddings
-    int range_1[] = {centre-embedding_freq-p, centre-embedding_freq};
-    int range_2[] = {centre+embedding_freq+1, centre+embedding_freq+p+1};
+    // centre - embedding_freq - p <--- centre ---> centre + embedding_freq + p
+
+    int range_1[] = {centre - embedding_freq - p, centre - embedding_freq}; // [centre - freq - p, centre - freq]
+    int range_2[] = {centre + embedding_freq + 1, centre + embedding_freq + p + 1}; // [centre + freq, centre + freq + p]
 
     for (int i = range_1[0]; i < range_1[1]; i++){
         X_abs[i] = X_embed[i - range_1[0]];
@@ -228,16 +218,35 @@ int main(void) {
         final[i][1] = X_abs[i] * sin(X_angle[i]);
     }
 
-    // -------------------- Write WAV --------------------
 
+    printf("----------------\n");
+    for(int i = n_frames/2; i < n_frames/2+10; i++){
+        printf("%.3f + %.3fj\n", final[i][0], final[i][1]);
+    }
+
+    // -------------------- Write WAV --------------------
+    // Unshift
+    fftw_complex *unshifted = iffshift(final, n_frames);
+    printf("----------------\n");
+    for(int i = 0; i < 10; i++){
+        printf("%.3f + %.3fj\n", unshifted[i][0], unshifted[i][1]);
+        //printf("%.3f + %.3fj\n", out[i][0], out[i][1]);
+    }
     // IFFT
     double *restored_signal = malloc(sizeof(double) * n_frames);
-    plan = fftw_plan_dft_c2r_1d(n_frames, iffshift(final, n_frames), restored_signal, FFTW_ESTIMATE);
+    plan = fftw_plan_dft_c2r_1d(n_frames, unshifted, restored_signal, FFTW_ESTIMATE);
     fftw_execute(plan);
     
     // Normalization
     for (int i = 0; i < n_frames; i++) {
-        restored_signal[i] /= n_frames;
+        restored_signal[i];
+    }
+
+    printf("--------------\n");
+    for (int i = 0; i< n_frames; i++){
+        if(restored_signal[i] != data[i]) {
+            printf("%d >>> %d (%d)\n", i, restored_signal[i], data[i]);
+        }
     }
 
     sfinfo_out.samplerate = fs;
