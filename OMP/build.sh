@@ -1,0 +1,1 @@
+gcc encode.c -o encode.m -lsndfile -lfftw3_omp -lfftw3 -fopenmp -lm

@@ -67,42 +67,42 @@ double *angle(fftw_complex *data, int n) {
 
 char *stringToBinary(char* s) {
     if(s == NULL) return ""; /* no input string */
-    size_t len = strlen(s);
-    char *binary = malloc(len*8 + 1); // each char is one byte (8 bits) and + 1 at the end for null terminator
-    binary[0] = '\0';
-    for(size_t i = 0; i < len; ++i) {
-        char ch = s[i];
-        for(int j = 7; j >= 0; --j){
-            if(ch & (1 << j)) {
-                strcat(binary,"1");
-            } else {
-                strcat(binary,"0");
-            }
+    int len = strlen(s);
+    char *binary = malloc((len*8 + 1)); // each char is one byte (8 bits) and + 1 at the end for null terminator
+    
+    int binaryIndex = 0;
+    for(int i = 0; i < len; ++i) {
+        char currentChar = s[i];
+        for(int j = 7; j >= 0; j--){
+            binary[binaryIndex++] = ((currentChar >> j) & 1) ? '1' : '0';
         }
     }
+    binary[binaryIndex] = '\0';
     return binary;
 }
 
-char *binaryToString(char *b) {
-    size_t len = strlen(b) / 8;
-    char *str = malloc(len*sizeof(char));
-    printf("------------\n");
-    for(size_t i = 0; i < strlen(b); i+=8) {
-        char ch = 0;
-        for (int j = 0; j <= 7; j++) {
-            int bit = (b[i + j] == '1') ? 1: 0;
-            ch += bit << 7 - j;
+char* binaryToString(char *binary) {
+    int binaryLength = strlen(binary);
+    int stringLength = binaryLength / 8;
+    char* originalString = malloc(stringLength + 1);
+
+    int binaryIndex = 0;
+    for (int i = 0; i < stringLength; i++) {
+        char currentChar = 0;
+        for (int j = 0; j < 8; j++) {
+            currentChar = (currentChar << 1) | (binary[binaryIndex++] - '0');
         }
-        str[i / 8] = ch;
+        originalString[i] = currentChar;
     }
-    return str;
+    originalString[stringLength] = '\0';
+    return originalString;
 }
 
 int main(void) {
     // ------------------------ Setup --------------------
     char in_filename[] = "../../Samples/ImperialMarch60.wav"; // Input filename
     char out_filename[] = "../../Outputs/c_out.wav"; // Output filename
-    char message[] = "My name is Slim Shady"; //Message 
+    char message[] = "my name is slim shady"; //Message 
     
     // ---------------------- Load WAV -------------------
     SNDFILE *infile, *outfile;
@@ -143,12 +143,13 @@ int main(void) {
     fftw_execute(plan); // Execute fftw plan
 
     // ffshift
+    for (int i = (n_frames/2)+1; i < n_frames; i++) {
+        out[i][0] = out[n_frames - i][0];
+        out[i][1] = -out[n_frames - i][1];
+    }
+
     fftw_complex *shifted = ffshift(out, n_frames);
 
-    printf("----------------\n");
-    for(int i = n_frames/2; i < n_frames/2+10; i++){
-        printf("%.3f + %.3fj\n", shifted[i][0], shifted[i][1]);
-    }
     // ------------- Embed meesage ----------------
     // To binary
     char *binary_msg = stringToBinary(message);
@@ -166,10 +167,23 @@ int main(void) {
     double *X_abs = magnitude(shifted, n_frames);
     double *X_angle = angle(shifted, n_frames);
 
+
+    FILE *fft_magnitude_test = fopen("../Testing/c_fft_magnitude.txt", "w");
+    for (int i = 0; i < n_frames; i++) {
+        fprintf(fft_magnitude_test, "%f\t%f\n", X_abs[i], X_angle[i]);
+    }
+    fclose(fft_magnitude_test);
+
     int start_embed = centre - embedding_freq - p;
     int end_embed = centre - embedding_freq;
     double *X_embed = malloc(sizeof(double) * p);
-    memcpy(X_embed, X_abs+start_embed, p);
+
+
+    memcpy(X_embed, &X_abs[start_embed], sizeof(double) * p);
+    // for (int i = 0; i < p; i++){
+    //     X_embed[i] = X_abs[i + start_embed];
+    // }
+
     double a = 0.1; // amplification factor of embedding
 
     // Loop
@@ -197,20 +211,33 @@ int main(void) {
     }
 
     // define range for adding embeddings back to final fft vec with embeddings
-    // centre - embedding_freq - p <--- centre ---> centre + embedding_freq + p
 
     int range_1[] = {centre - embedding_freq - p, centre - embedding_freq}; // [centre - freq - p, centre - freq]
     int range_2[] = {centre + embedding_freq + 1, centre + embedding_freq + p + 1}; // [centre + freq, centre + freq + p]
 
+    printf("p = %d\n", p);
+    printf("centre = %d\n", centre);
+    printf("embedding_freq = %d\n", embedding_freq);
+    printf("Embedding range 1: [%d, %d]\n", range_1[0], range_1[1]);
+    printf("Embedding range 2: [%d, %d]\n", range_2[0], range_2[1]);
+
+    // X_abs[range_1] = X_embed
     for (int i = range_1[0]; i < range_1[1]; i++){
         X_abs[i] = X_embed[i - range_1[0]];
     }
 
-    //symmetry
+    //symmetry - X_abs[range_2] = X_embed[::-1]
     for (int i = range_2[0]; i < range_2[1]; i++){
         X_abs[i] = X_embed[range_2[1] - i];
     }
 
+    FILE *fft_abs_altered = fopen("../Testing/c_fft_magnitude_altered.txt", "w");
+    for (int i = 0; i < n_frames; i++) {
+        fprintf(fft_abs_altered, "%f\t%f\n", X_abs[i], X_angle[i]);
+    }
+    fclose(fft_abs_altered);
+
+    
     // multiply
     fftw_complex *final = fftw_malloc(sizeof(fftw_complex)* n_frames);
     for (int i = 0; i < n_frames; i++) {
@@ -218,20 +245,10 @@ int main(void) {
         final[i][1] = X_abs[i] * sin(X_angle[i]);
     }
 
-
-    printf("----------------\n");
-    for(int i = n_frames/2; i < n_frames/2+10; i++){
-        printf("%.3f + %.3fj\n", final[i][0], final[i][1]);
-    }
-
     // -------------------- Write WAV --------------------
     // Unshift
     fftw_complex *unshifted = iffshift(final, n_frames);
-    printf("----------------\n");
-    for(int i = 0; i < 10; i++){
-        printf("%.3f + %.3fj\n", unshifted[i][0], unshifted[i][1]);
-        //printf("%.3f + %.3fj\n", out[i][0], out[i][1]);
-    }
+
     // IFFT
     double *restored_signal = malloc(sizeof(double) * n_frames);
     plan = fftw_plan_dft_c2r_1d(n_frames, unshifted, restored_signal, FFTW_ESTIMATE);
@@ -239,14 +256,7 @@ int main(void) {
     
     // Normalization
     for (int i = 0; i < n_frames; i++) {
-        restored_signal[i];
-    }
-
-    printf("--------------\n");
-    for (int i = 0; i< n_frames; i++){
-        if(restored_signal[i] != data[i]) {
-            printf("%d >>> %d (%d)\n", i, restored_signal[i], data[i]);
-        }
+        restored_signal[i] = restored_signal[i] / n_frames;
     }
 
     sfinfo_out.samplerate = fs;

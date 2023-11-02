@@ -43,27 +43,43 @@ double *magnitude(fftw_complex *data, int n) {
 double *angle(fftw_complex *data, int n) {
     double *a = malloc(sizeof(double) * n);
     for (int i = 0; i < n; i++) {
-        a[i] = atan(data[i][1] / data[i][0]);
+        a[i] = atan2(data[i][1], data[i][0]);
     }
+    return a;
 }
 
 
-char* stringToBinary(char* s) {
-    if(s == NULL) return 0; /* no input string */
-    size_t len = strlen(s);
-    char *binary = malloc(len*8 + 1); // each char is one byte (8 bits) and + 1 at the end for null terminator
-    binary[0] = '\0';
-    for(size_t i = 0; i < len; ++i) {
-        char ch = s[i];
-        for(int j = 7; j >= 0; --j){
-            if(ch & (1 << j)) {
-                strcat(binary,"1");
-            } else {
-                strcat(binary,"0");
-            }
+char *stringToBinary(char* s) {
+    if(s == NULL) return ""; /* no input string */
+    int len = strlen(s);
+    char *binary = malloc((len*8 + 1)); // each char is one byte (8 bits) and + 1 at the end for null terminator
+    
+    int binaryIndex = 0;
+    for(int i = 0; i < len; ++i) {
+        char currentChar = s[i];
+        for(int j = 7; j >= 0; j--){
+            binary[binaryIndex++] = ((currentChar >> j) & 1) ? '1' : '0';
         }
     }
+    binary[binaryIndex] = '\0';
     return binary;
+}
+
+char* binaryToString(char *binary) {
+    int binaryLength = strlen(binary);
+    int stringLength = binaryLength / 8;
+    char* originalString = malloc(stringLength + 1);
+
+    int binaryIndex = 0;
+    for (int i = 0; i < stringLength; i++) {
+        char currentChar = 0;
+        for (int j = 0; j < 8; j++) {
+            currentChar = (currentChar << 1) | (binary[binaryIndex++] - '0');
+        }
+        originalString[i] = currentChar;
+    }
+    originalString[stringLength] = '\0';
+    return originalString;
 }
 
 int main(void) {
@@ -108,30 +124,50 @@ int main(void) {
     fftw_plan plan = fftw_plan_dft_r2c_1d(n_frames, data, out, FFTW_ESTIMATE); // Create fftw execution plan
     fftw_execute(plan); // Execute fftw plan
 
+    // ffshift
+    for (int i = (n_frames/2)+1; i < n_frames; i++) {
+        out[i][0] = out[n_frames - i][0];
+        out[i][1] = -out[n_frames - i][1];
+    }
+
     fftw_complex *shifted = ffshift(out, n_frames);
 
 
-    int frame = 216;
+    int frame = 168;
     int embed_sample_sz = 10;
     int p = frame * embed_sample_sz; // total number of samples used for embedding data
     int centre = n_frames / 2 + 1; // centre frequency/ zero point
     int embedding_freq = 5000; // in hz
 
+    printf("p = %d\n", p);
+    printf("centre = %d\n", centre);
+    printf("embedding_freq = %d\n", embedding_freq);
+
     double *X_abs = magnitude(shifted, n_frames);
     double *X_angle = angle(shifted, n_frames);
 
+    FILE *fft_abs_altered = fopen("../Testing/c_fft_magnitude_decoded.txt", "w");
+    for (int i = 0; i < n_frames; i++) {
+        fprintf(fft_abs_altered, "%f\t%f\n", X_abs[i], X_angle[i]);
+    }
+    fclose(fft_abs_altered);
 
     int start_embed = centre - embedding_freq - p;
     int end_embed = centre - embedding_freq;
     double *X_embed = malloc(sizeof(double) * p);
-    memcpy(X_embed, X_abs+start_embed, p);
+    
+    memcpy(X_embed, &X_abs[start_embed], sizeof(double) * p);
+    // for (int i = 0; i < p; i++){
+    //     X_embed[i] = X_abs[i + start_embed];
+    // }
 
     double a = 0.1; // amplification factor of embedding
 
     char *recovered_binary = malloc(frame * sizeof(char));
     // Decode loop
     for (int k = 0; k < frame; k++){
-        double avg = 0, b = 0, c = 0;
+        double avg = 0;
+        int b = 0, c = 0;
         for (int l = 0; l < embed_sample_sz; l++) {
             avg = avg + X_embed[k * embed_sample_sz + l];
         }
@@ -152,6 +188,7 @@ int main(void) {
                 b++;
             }
         }
+        printf("%d - %d\n", b, c);
         recovered_binary[k] = (b > c) ? '1': '0';
     }
     printf("Recovered Encoded Message: %s", recovered_binary);
