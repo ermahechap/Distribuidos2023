@@ -193,9 +193,6 @@ int main(void) {
   double *X_abs = magnitude(data_ft, N);
   double *X_angle = angle(data_ft, N);
 
-  double *Y = malloc(sizeof(double) * N);;
-  memcpy(Y, X_abs, sizeof(double) * N);
-
   int start_embed = centre + embedding_freq + 1;
   int end_embed = centre + embedding_freq + p + 1;
   if (verbosity) printf("Embedding range: [%d, %d)\n", start_embed, end_embed);
@@ -223,18 +220,17 @@ int main(void) {
       }
     }
   }
-
-  // Y[range_2] = X_embed[::-1] // Symmetry
+  // Y[range_2] = X_embed
   int range_2[] = {centre + embedding_freq + 1, centre + embedding_freq + p + 1}; // [centre + freq, centre + freq + p]
   for (int i = range_2[0]; i < range_2[1]; i++){
-    Y[i] = X_embed[i - range_2[0]];
+    X_abs[i] = X_embed[i - range_2[0]];
   }
 
   // Multiply
   fftw_complex *Y1 = fftw_malloc(sizeof(fftw_complex)* N);
   for (int i = 0; i < N; i++) {
-    Y1[i][0] = Y[i] * cos(X_angle[i]); 
-    Y1[i][1] = Y[i] * sin(X_angle[i]);
+    Y1[i][0] = X_abs[i] * cos(X_angle[i]); 
+    Y1[i][1] = X_abs[i] * sin(X_angle[i]);
   }
 
   if (verbosity){
