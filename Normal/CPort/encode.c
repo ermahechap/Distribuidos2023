@@ -7,36 +7,36 @@
 #include <complex.h>
 
 char *stringToBinary(char* s) {
-    if(s == NULL) return ""; /* no input string */
-    int len = strlen(s);
-    char *binary = malloc((len*8 + 1)); // each char is one byte (8 bits) and + 1 at the end for null terminator
-    
-    int binaryIndex = 0;
-    for(int i = 0; i < len; ++i) {
-        char currentChar = s[i];
-        for(int j = 7; j >= 0; j--){
-            binary[binaryIndex++] = ((currentChar >> j) & 1) ? '1' : '0';
-        }
+  if(s == NULL) return ""; /* no input string */
+  int len = strlen(s);
+  char *binary = malloc((len*8 + 1)); // each char is one byte (8 bits) and + 1 at the end for null terminator
+  
+  int binaryIndex = 0;
+  for(int i = 0; i < len; ++i) {
+    char currentChar = s[i];
+    for(int j = 7; j >= 0; j--){
+      binary[binaryIndex++] = ((currentChar >> j) & 1) ? '1' : '0';
     }
-    binary[binaryIndex] = '\0';
-    return binary;
+  }
+  binary[binaryIndex] = '\0';
+  return binary;
 }
 
 char* binaryToString(char *binary) {
-    int binaryLength = strlen(binary);
-    int stringLength = binaryLength / 8;
-    char* originalString = malloc(stringLength + 1);
+  int binaryLength = strlen(binary);
+  int stringLength = binaryLength / 8;
+  char* originalString = malloc(stringLength + 1);
 
-    int binaryIndex = 0;
-    for (int i = 0; i < stringLength; i++) {
-        char currentChar = 0;
-        for (int j = 0; j < 8; j++) {
-            currentChar = (currentChar << 1) | (binary[binaryIndex++] - '0');
-        }
-        originalString[i] = currentChar;
+  int binaryIndex = 0;
+  for (int i = 0; i < stringLength; i++) {
+    char currentChar = 0;
+    for (int j = 0; j < 8; j++) {
+      currentChar = (currentChar << 1) | (binary[binaryIndex++] - '0');
     }
-    originalString[stringLength] = '\0';
-    return originalString;
+    originalString[i] = currentChar;
+  }
+  originalString[stringLength] = '\0';
+  return originalString;
 }
 
 void readWav(char *path, double **readDataPtr, SF_INFO* sfInfoPtr, SNDFILE *sfFile, int verbosity) {
@@ -81,19 +81,19 @@ void writeWav(char *path, double *data, int samplerate, int N, int verbosity) {
 }
 
 double *magnitude(fftw_complex *data, int n) {
-    double *m = malloc(sizeof(double) * n);
-    for (int i = 0; i < n; i++) {
-        m[i] = sqrt(data[i][0]*data[i][0] + data[i][1]*data[i][1]);
-    }
-    return m;
+  double *m = malloc(sizeof(double) * n);
+  for (int i = 0; i < n; i++) {
+    m[i] = sqrt(data[i][0]*data[i][0] + data[i][1]*data[i][1]);
+  }
+  return m;
 }
 
 double *angle(fftw_complex *data, int n) {
-    double *a = malloc(sizeof(double) * n);
-    for (int i = 0; i < n; i++) {
-        a[i] = atan2(data[i][1], data[i][0]);
-    }
-    return a;
+  double *a = malloc(sizeof(double) * n);
+  for (int i = 0; i < n; i++) {
+    a[i] = atan2(data[i][1], data[i][0]);
+  }
+  return a;
 }
 
 void fftshift(fftw_complex **dataPtr, int N) {
@@ -132,7 +132,6 @@ void ifftshift(fftw_complex **dataPtr, int N){
   }
 }
 
-
 int main(void) {
   // ------------------------ Setup --------------------
   int verbosity = 1;
@@ -143,14 +142,17 @@ int main(void) {
   // convert message to binary
   char *binary_msg = stringToBinary(message);
   if (verbosity){
-    printf("Message: %s\n", message);
-    printf("Nbits: %d\n", strlen(binary_msg));
-    printf("Message encoded: ");
-    for (int i = 0; i < strlen(binary_msg); i++){
-      if ((i % 8 == 0)) printf(" [%c]", message[i/8]);
-      printf("%c", binary_msg[i]);
+    printf("Message N bits: %d\n", strlen(binary_msg));
+    if (verbosity > 2) {
+      printf("Message: %s\n", message);
+      printf("Message encoded: ");
+      for (int i = 0; i < strlen(binary_msg); i++){
+        if ((i % 8 == 0)) printf(" [%c]", message[i/8]);
+        printf("%c", binary_msg[i]);
+      }
+      puts("");
     }
-    printf("\n------------------------\n");
+    printf("------------------------\n");
   }
 
   // ---------------------- Load WAV ---------------------
@@ -192,6 +194,7 @@ int main(void) {
 
   double *X_abs = magnitude(data_ft, N);
   double *X_angle = angle(data_ft, N);
+  fftw_free(data_ft);
 
   int start_embed = centre + embedding_freq + 1;
   int end_embed = centre + embedding_freq + p + 1;
@@ -233,17 +236,20 @@ int main(void) {
     Y1[i][1] = X_abs[i] * sin(X_angle[i]);
   }
 
+  free(X_abs);
+  free(X_angle);
+  
   if (verbosity){
     printf("Embedding in signal... DONE!\n");
     printf("--------------------------\n");
   }
-
   // --------------------- Unshift FFT -----------------------
   if (verbosity) printf("IFFT over embedded data!\n");
   ifftshift(&Y1, N); // unshift
   double *embedded_signal = malloc(N * sizeof(double));
   fftw_plan inverse_plan = fftw_plan_dft_c2r_1d(N, Y1, embedded_signal, FFTW_ESTIMATE);
   fftw_execute(inverse_plan);
+  fftw_free(Y1);
 
   // Normalization
   for (int i = 0; i < N; i++) embedded_signal[i] = embedded_signal[i] / N;
@@ -254,5 +260,5 @@ int main(void) {
   }
   // -------------------- Write Embedded WAV -----------------
   writeWav(out_filename, embedded_signal, Fs, N, verbosity);
-  
+  free(embedded_signal);
 }
