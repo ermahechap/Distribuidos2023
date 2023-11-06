@@ -1,2 +1,2 @@
-gcc encode.c -o encode.m -lsndfile -lfftw3 -lm &&
-gcc decode.c -o decode.m -lsndfile -lfftw3 -lm
+gcc encode.c -o encode.o -lsndfile -lfftw3 -lm  &&
+gcc decode.c -o decode.o -lsndfile -lfftw3 -lm

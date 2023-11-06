@@ -105,9 +105,6 @@ char *binaryToString(char *b) {
     return str;
 }
 
-
-
-
 int main(void) {
     // ------------------------ Setup --------------------
     char in_filename[] = "../Samples/thewho.wav"; // Input filename
