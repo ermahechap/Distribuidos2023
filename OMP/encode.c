@@ -7,273 +7,285 @@
 #include <omp.h>
 #include <complex.h>
 
-double *readWav(char *path, SF_INFO sfInfo, SNDFILE *sfFile) {
-    sfFile = sf_open(path, SFM_READ, &sfInfo);
-    double *data = malloc(sizeof(double) * sfInfo.frames * sfInfo.channels);
-    sf_read_double(sfFile, data, sfInfo.frames * sfInfo.channels);
-
-    return data;
-}
-
-void writeWav(double *data, char *path, SF_INFO sfInfo, SNDFILE *sfFile) {
-    sfInfo.format = SF_FORMAT_WAV | SF_FORMAT_DOUBLE; // WAV format, floating-point samples
-    sfFile = sf_open(path, SFM_WRITE, &sfInfo);
-    sf_write_double(sfFile, data, sfInfo.frames * sfInfo.channels);
-}
-
-fftw_complex *ffshift(fftw_complex *data, int n) {
-    fftw_complex *shifted = fftw_malloc(sizeof(fftw_complex) * n);
-    int shift = n / 2;
-    int i;
-
-    #pragma omp parallel for shared(data, shifted)
-    for (i = 0; i < n; i++){    
-        int j = (i + shift) % n;
-        shifted[i][0] = data[j][0];
-        shifted[i][1] = data[j][1];
+char *stringToBinary(char* s) {
+  if(s == NULL) return ""; /* no input string */
+  int len = strlen(s);
+  char *binary = malloc((len*8 + 1)); // each char is one byte (8 bits) and + 1 at the end for null terminator
+  
+  int binaryIndex = 0;
+  for(int i = 0; i < len; ++i) {
+    char currentChar = s[i];
+    for(int j = 7; j >= 0; j--){
+      binary[binaryIndex++] = ((currentChar >> j) & 1) ? '1' : '0';
     }
-    return shifted;
+  }
+  binary[binaryIndex] = '\0';
+  return binary;
 }
 
+char* binaryToString(char *binary) {
+  int binaryLength = strlen(binary);
+  int stringLength = binaryLength / 8;
+  char* originalString = malloc(stringLength + 1);
 
-fftw_complex *iffshift(fftw_complex *data, int n){
-    if (n % 2 == 0) return ffshift(data, n);
-
-    fftw_complex *unshifted = fftw_malloc(sizeof(fftw_complex) * n);
-    int shift = (n - 1) / 2;
-    int i;
-    #pragma omp parallel for
-    for(i = 0; i < n; i++) {
-        int j = i + shift + 1;
-        unshifted[i][0] = data[j][0];
-        unshifted[i][1] = data[j][1];
+  int binaryIndex = 0;
+  for (int i = 0; i < stringLength; i++) {
+    char currentChar = 0;
+    for (int j = 0; j < 8; j++) {
+      currentChar = (currentChar << 1) | (binary[binaryIndex++] - '0');
     }
-    return unshifted;
+    originalString[i] = currentChar;
+  }
+  originalString[stringLength] = '\0';
+  return originalString;
+}
+
+void readWav(char *path, double **readDataPtr, SF_INFO* sfInfoPtr, SNDFILE *sfFile, int verbosity) {
+  if (verbosity) printf("Reading File: %s\n", path);
+
+  sfFile = sf_open(path, SFM_READ, sfInfoPtr);
+  double *buffer = (double *)malloc(sfInfoPtr->channels * sfInfoPtr->frames * sizeof(double));
+  *readDataPtr = (double *) malloc(sfInfoPtr->frames * sizeof(double));
+
+  sf_read_double(sfFile, buffer, sfInfoPtr->channels * sfInfoPtr->frames);
+
+  if (sfInfoPtr->channels > 1) {
+    if (verbosity) printf("WARNING - More than one channel, taking first channel");
+    // #pragma omp for
+    for (int i = 0; i < sfInfoPtr->frames; i++) {
+      (*readDataPtr)[i] = buffer[i * sfInfoPtr->channels];
+    }
+  } else {
+    memcpy(*readDataPtr, buffer, sfInfoPtr->frames * sizeof(double));
+  }
+  free(buffer);
+  
+  sf_close(sfFile);
+  if (verbosity) {
+    printf("File Read... DONE!\n");
+    printf("File Info:\n");
+    printf("Sample Rate: %d Hz\n", sfInfoPtr->samplerate);
+    printf("Frames: %d\n", sfInfoPtr->frames);
+    printf("Channels: %d\n", sfInfoPtr->channels);
+  }
+}
+
+void writeWav(char *path, double *data, int samplerate, int N, int verbosity) {
+  if (verbosity) printf("Writing File: %s\n", path);
+  SNDFILE *outFile; SF_INFO outInfo;
+  outInfo.samplerate = samplerate;
+  outInfo.channels = 1;
+  outInfo.format = SF_FORMAT_WAV | SF_FORMAT_DOUBLE;
+
+  outFile = sf_open(path, SFM_WRITE, &outInfo);
+  sf_write_double(outFile, data, N);
+  sf_close(outFile);
+  if (verbosity) printf("File Writing... DONE!\n", path);
 }
 
 double *magnitude(fftw_complex *data, int n) {
-    double *m = malloc(sizeof(double) * n);
-    int i;
-    #pragma omp parallel for
-    for (i = 0; i < n; i++) {
-        m[i] = sqrt(data[i][0]*data[i][0] + data[i][1]*data[i][1]);
-    }
-    return m;
+  double *m = malloc(sizeof(double) * n);
+  for (int i = 0; i < n; i++) {
+    m[i] = sqrt(data[i][0]*data[i][0] + data[i][1]*data[i][1]);
+  }
+  return m;
 }
 
 double *angle(fftw_complex *data, int n) {
-    double *a = malloc(sizeof(double) * n);
-    int i;
-    #pragma omp parallel for shared(data, n)
-    for (i = 0; i < n; i++) {
-        a[i] = atan2(data[i][1], data[i][0]);
-    }
-    return a;
+  double *a = malloc(sizeof(double) * n);
+  for (int i = 0; i < n; i++) {
+    a[i] = atan2(data[i][1], data[i][0]);
+  }
+  return a;
 }
 
-
-char *stringToBinary(char* s) {
-    if(s == NULL) return ""; /* no input string */
-    size_t len = strlen(s);
-    char *binary = malloc(len*8 + 1); // each char is one byte (8 bits) and + 1 at the end for null terminator
-    binary[0] = '\0';
-    for(size_t i = 0; i < len; ++i) {
-        char ch = s[i];
-        for(int j = 7; j >= 0; --j){
-            if(ch & (1 << j)) {
-                strcat(binary,"1");
-            } else {
-                strcat(binary,"0");
-            }
-        }
+void fftshift(fftw_complex **dataPtr, int N) {
+  int c = (int) floor((float) N / 2);
+  int k;
+  if (N % 2 == 0) { //even
+    #pragma omp for
+    for (k = 0; k < c; k++){
+      fftw_complex tmp = {(*dataPtr)[k][0], (*dataPtr)[k][1]};
+      (*dataPtr)[k][0] = (*dataPtr)[k + c][0]; (*dataPtr)[k][1] = (*dataPtr)[k + c][1];
+      (*dataPtr)[k + c][0] = tmp[0]; (*dataPtr)[k + c][1] = tmp[1];
     }
-    return binary;
+  } else { // odd
+    fftw_complex tmp = {(*dataPtr)[0][0], (*dataPtr)[0][1]};
+    #pragma omp for
+    for (k = 0; k < c; k++){
+      (*dataPtr)[k][0] = (*dataPtr)[c + k + 1][0]; (*dataPtr)[k][1] = (*dataPtr)[c + k + 1][1];
+      (*dataPtr)[c + k + 1][0] = (*dataPtr)[k + 1][0]; (*dataPtr)[c + k + 1][1] = (*dataPtr)[k + 1][1];
+    }
+    (*dataPtr)[c][0] = tmp[0]; (*dataPtr)[c][1] = tmp[1];
+  }
 }
 
-char *binaryToString(char *b) {
-    size_t len = strlen(b) / 8;
-    char *str = malloc(len*sizeof(char));
-    printf("------------\n");
-    for(size_t i = 0; i < strlen(b); i+=8) {
-        char ch = 0;
-        for (int j = 0; j <= 7; j++) {
-            int bit = (b[i + j] == '1') ? 1: 0;
-            ch += bit << 7 - j;
-        }
-        str[i / 8] = ch;
+void ifftshift(fftw_complex **dataPtr, int N){
+  int c = (int) floor((float) N / 2);
+  int k;
+  if (N % 2 == 0) { // even
+    #pragma omp for
+    for (k = 0; k < c; k++){
+      fftw_complex tmp = {(*dataPtr)[k][0], (*dataPtr)[k][1]};
+      (*dataPtr)[k][0] = (*dataPtr)[k + c][0]; (*dataPtr)[k][1] = (*dataPtr)[k + c][1];
+      (*dataPtr)[k + c][0] = tmp[0]; (*dataPtr)[k + c][1] = tmp[1];
     }
-    return str;
+  } else { // odd
+    fftw_complex tmp = {(*dataPtr)[N - 1][0], (*dataPtr)[N - 1][1]};
+    #pragma omp for
+    for (k = c - 1; k >= 0; k--){
+      (*dataPtr)[c + k + 1][0] = (*dataPtr)[k][0]; (*dataPtr)[c + k + 1][1] = (*dataPtr)[k][1];
+      (*dataPtr)[k][0] = (*dataPtr)[c + k][0]; (*dataPtr)[k][1] = (*dataPtr)[c + k][1];
+    }
+    (*dataPtr)[c][0] = tmp[0]; (*dataPtr)[c][1] = tmp[1];
+  }
 }
+
+fftw_complex *encode_message(int N) {
+  fftw_complex *Y1 = fftw_malloc(sizeof(fftw_complex) * N);
+
+  return Y1;
+}
+
 
 int main(void) {
-    // ------------------------ Setup --------------------
-    char in_filename[] = "../Samples/thewho.wav"; // Input filename
-    char out_filename[] = "../Outputs/c_out_omp.wav"; // Output filename
-    char message[] = "My name is Slim Shady"; //Message 
+  // ------------------------ Setup --------------------
+  int verbosity = 1;
+  char in_filename[] = "../Samples/thewho.wav"; // Input filename
+  char out_filename[] = "../Outputs/c_out.wav"; // Output filename
+  char message[] = "my name is slim 12OMP"; // Message
+  char *binary_msg = stringToBinary(message);
+  int num_threads = omp_get_max_threads();
+  
+  // omp setup
+  omp_set_num_threads(num_threads); // Set n threads globally
+  fftw_init_threads(); // Use FFTW with OMP (Only call once)
+  fftw_plan_with_nthreads(num_threads); // Set FFTW n threads (all plans with num_threads)
 
-    // omp setup
-    fftw_init_threads();
+  if (verbosity){
+    printf("N threads: %d\n", num_threads);
+    printf("Message N bits: %d\n", strlen(binary_msg));
+    if (verbosity >= 2) {
+      printf("Message: %s\n", message);
+      printf("Message encoded: ");
+      for (int i = 0; i < strlen(binary_msg); i++){
+        if ((i % 8 == 0)) printf(" [%c]", message[i/8]);
+        printf("%c", binary_msg[i]);
+      }
+      puts("");
+    }
+    printf("------------------------\n");
+  }
 
-    int num_threads = omp_get_max_threads();
-    fftw_plan_with_nthreads(num_threads);
-    
-    // ---------------------- Load WAV -------------------
-    SNDFILE *infile, *outfile;
-    SF_INFO sfinfo_in, sfinfo_out;
-    double *buffer;
-    double *data;
+  // ---------------------- Load WAV ---------------------
+  SNDFILE *inFile; SF_INFO inInfo;
+  double *data; // Not allocated yet
+  readWav(in_filename, &data, &inInfo, inFile, verbosity);
+  if (verbosity) printf("-------------------------\n");
 
-    infile = sf_open(in_filename, SFM_READ, &sfinfo_in);
-    buffer = (double *)malloc(sfinfo_in.channels * sfinfo_in.frames * sizeof(double));
-    data = (double *)malloc(sfinfo_in.frames * sizeof(double));
-    sf_read_double(infile, buffer, sfinfo_in.channels * sfinfo_in.frames);
+  int Fs = inInfo.samplerate;
+  int N = inInfo.frames;
 
-    if (sfinfo_in.channels > 1){
-        printf("WARNING - More than one channel, taking first only!\n");
-        for (int i = 0; i < sfinfo_in.frames; i++) {
-            data[i] = buffer[i * sfinfo_in.channels];
-        }
+  // --------------------- FFT -----------------------------
+  // FFT
+  if (verbosity) printf ("FFT over read data\n");
+  fftw_complex *data_ft = fftw_malloc(sizeof(fftw_complex) * N);
+  fftw_plan plan = fftw_plan_dft_r2c_1d(N, data, data_ft, FFTW_ESTIMATE); // Create fftw execution plan
+  // fftw_plan plan = fftw_plan_dft_1d(N, data, data_ft, FFTW_FORWARD, FFTW_ESTIMATE);
+  fftw_execute(plan);
+  fftshift(&data_ft, N); // Shift the data (OMP version)
+
+  if (verbosity) {
+    printf("FFT... DONE!\n");
+    printf("--------------------------\n");
+  }
+
+  // --------------------- Embed Message ----------------------
+  if (verbosity) printf ("Embedding message into signal:\n");
+  int frame = strlen(binary_msg);
+  int embed_sample_sz = 10;
+  int p = frame * embed_sample_sz;
+  int centre = N / 2 + 1;
+  int embedding_freq = 5000;
+  double a = 0.1;
+  if (verbosity) {
+    printf("Settings:\n");
+    printf("frame: %d\n", frame);
+    printf("embed_sample_sz: %d\n", embed_sample_sz);
+    printf("embedding_freq: %d\n", embedding_freq);
+  }
+
+  double *X_abs = magnitude(data_ft, N);
+  double *X_angle = angle(data_ft, N);
+  fftw_free(data_ft);
+
+  int start_embed = centre + embedding_freq + 1;
+  int end_embed = centre + embedding_freq + p + 1;
+  if (verbosity) printf("Embedding range: [%d, %d)\n", start_embed, end_embed);
+  double *X_embed = malloc(sizeof(double) * p);
+  memcpy(X_embed, &X_abs[start_embed], sizeof(double) * p);
+
+  // Loop
+  #pragma omp for
+  for (int k = 0; k < frame; k++) { // row
+    double avg = 0;
+    for (int l = 0; l < embed_sample_sz; l++) { //col
+      avg += X_embed[k * embed_sample_sz + l];
+      //avg += X_abs[start_embed + (k * embed_sample_sz + l)];
+    }
+    avg /= embed_sample_sz;
+
+    // embed_sample_sz is small enough - Not paralellized
+    if (binary_msg[k] == '0') {
+      for (int l = 0; l < embed_sample_sz; l++) {
+        X_embed[k * embed_sample_sz + l] = avg;
+      }
     } else {
-        memcpy(data, buffer, sizeof(double) * sfinfo_in.frames * sfinfo_in.channels);
+      for (int l = 0; l < embed_sample_sz / 2; l++) {
+        X_embed[k * embed_sample_sz + l] = a * avg;
+      }
+      for (int l = embed_sample_sz / 2; l < embed_sample_sz; l++){
+        X_embed[k * embed_sample_sz + l] = (2 - a) * avg;
+      }
     }
-    free(buffer);
-    sf_close(infile);
+  }
+  // Y[range_2] = X_embed
+  for (int i = start_embed; i < end_embed; i++){
+    X_abs[i] = X_embed[i - start_embed];
+  }
 
-    // file info
-    int fs = sfinfo_in.samplerate; // wav sample rate
-    int n_frames = sfinfo_in.frames; // wav frames
-    int n_channels = sfinfo_in.channels; // wav channels
-    printf("Input file path: %s\n", in_filename);
-    printf("Sample Rate: %d Hz\n", fs);
-    printf("Frames: %d\n", n_frames);
-    printf("Channels: %d\n", n_channels);
-    printf("-----------------\n");
+  // Multiply
+  fftw_complex *Y1 = fftw_malloc(sizeof(fftw_complex)* N);
+  #pragma omp for
+  for (int i = 0; i < N; i++) {
+    Y1[i][0] = X_abs[i] * cos(X_angle[i]); 
+    Y1[i][1] = X_abs[i] * sin(X_angle[i]);
+  }
 
-    // --------------------- FFT ------------------
-    // FFT
-    fftw_complex *out = fftw_malloc(sizeof(fftw_complex) * n_frames);
-    fftw_plan plan = fftw_plan_dft_r2c_1d(n_frames, data, out, FFTW_ESTIMATE); // Create fftw execution plan
-    fftw_execute(plan); // Execute fftw plan
+  free(X_abs);
+  free(X_angle);
+  
+  if (verbosity){
+    printf("Embedding in signal... DONE!\n");
+    printf("--------------------------\n");
+  }
 
-    // ffshift
-    fftw_complex *shifted = ffshift(out, n_frames);
-    free(data);
-    fftw_free(out);
+  // --------------------- Unshift FFT -----------------------
+  if (verbosity) printf("IFFT over embedded data!\n");
+  ifftshift(&Y1, N); // unshift
+  double *embedded_signal = malloc(N * sizeof(double));
+  fftw_plan inverse_plan = fftw_plan_dft_c2r_1d(N, Y1, embedded_signal, FFTW_ESTIMATE);
+  fftw_execute(inverse_plan);
+  fftw_free(Y1);
 
-    // ------------- Embed meesage ----------------
-    // To binary
-    char *binary_msg = stringToBinary(message);
-    printf("Message n_bits: %d\n", strlen(binary_msg));
-    printf("Message: %s\n", message);
-    printf("Encoded Message: %s\n", binary_msg);
-
-    // Embedding algorithm
-    int frame = strlen(binary_msg);
-    int embed_sample_sz = 10;
-    int p = frame * embed_sample_sz; // total number of samples used for embedding data
-    int centre = n_frames / 2 + 1; // centre frequency/ zero point
-    int embedding_freq = 5000; // in hz
-
-    double *X_abs = magnitude(shifted, n_frames);
-    double *X_angle = angle(shifted, n_frames);
-
-    int start_embed = centre - embedding_freq - p;
-    int end_embed = centre - embedding_freq;
-    double *X_embed = malloc(sizeof(double) * p);
-
-
-    memcpy(X_embed, &X_abs[start_embed], sizeof(double) * p);
-    // for (int i = 0; i < p; i++){
-    //     X_embed[i] = X_abs[i + start_embed];
-    // }
-
-    double a = 0.2; // amplification factor of embedding
-
-    // Loop
-    int k;
-    #pragma omp for
-    for (k = 0; k < frame; k++) { // row
-        double avg = 0;
-        
-        // Not worth it to be paralelized
-        for (int l = 0; l < embed_sample_sz; l++){
-            avg += X_embed[k * embed_sample_sz + l];
-        }
-        avg /= embed_sample_sz;
-
-        if (binary_msg[k] == '0') {
-            // printf("0 ");
-            for (int l = 0; l < embed_sample_sz; l++){
-                X_embed[k*embed_sample_sz + l] = avg;
-            }
-        } else {
-            // printf("1 ");
-            int l;
-            #pragma omp paralell for nowait
-            for (l = 0; l < embed_sample_sz/2; l++){
-                X_embed[k*embed_sample_sz + l] = a*avg;
-            }
-            #pragma omp parallel
-            for (l = embed_sample_sz/2; l < embed_sample_sz; l++){
-                X_embed[k*embed_sample_sz + l] = (2-a)*avg;
-            }
-        }
-    }
-
-    // define range for adding embeddings back to final fft vec with embeddings
-
-    int range_1[] = {centre - embedding_freq - p, centre - embedding_freq}; // [centre - freq - p, centre - freq]
-    int range_2[] = {centre + embedding_freq + 1, centre + embedding_freq + p + 1}; // [centre + freq, centre + freq + p]
-
-    printf("Embedding range 1: [%d, %d]\n", range_1[0], range_1[1]);
-    printf("Embedding range 2: [%d, %d]\n", range_2[0], range_2[1]);
-
-    // X_abs[range_1] = X_embed
-    int i;
-    #pragma omp paralell for nowait
-    for (i = range_1[0]; i < range_1[1]; i++){
-        X_abs[i] = X_embed[i - range_1[0]];
-    }
-
-    //symmetry - X_abs[range_2] = X_embed[::-1]
-    #pragma omp parallel for
-    for (i = range_2[0]; i < range_2[1]; i++){
-        X_abs[i] = X_embed[range_2[1] - i];
-    }    
-    
-    free(X_embed);
-    
-    // multiply
-    fftw_complex *final = fftw_malloc(sizeof(fftw_complex)* n_frames);
-    
-    #pragma omp parallel for
-    for (i = 0; i < n_frames; i++) {
-        final[i][0] = X_abs[i] * cos(X_angle[i]);
-        final[i][1] = X_abs[i] * sin(X_angle[i]);
-    }
-
-    // -------------------- Write WAV --------------------
-    // Unshift
-    fftw_complex *unshifted = iffshift(final, n_frames);
-
-    // IFFT
-    double *restored_signal = malloc(sizeof(double) * n_frames);
-    plan = fftw_plan_dft_c2r_1d(n_frames, unshifted, restored_signal, FFTW_ESTIMATE);
-    fftw_execute(plan);
-    
-    // Normalization
-    #pragma omp paralell for
-    for (int i = 0; i < n_frames; i++) {
-        restored_signal[i] /= n_frames;
-    }
-
-    sfinfo_out.samplerate = fs;
-    sfinfo_out.channels = 1;  // Writing only the first channel
-    sfinfo_out.format = SF_FORMAT_WAV | SF_FORMAT_DOUBLE; // WAV format, floating-point samples
-
-    outfile = sf_open(out_filename, SFM_WRITE, &sfinfo_out);
-    sf_write_double(outfile, restored_signal, n_frames);
-
-    sf_close(outfile);
-    free(restored_signal);
+  // Normalization
+  for (int i = 0; i < N; i++) embedded_signal[i] = embedded_signal[i] / N;
+  
+  if (verbosity){
+    printf("IFFT... DONE!\n");
+    printf("--------------------------\n");
+  }
+  // -------------------- Write Embedded WAV -----------------
+  writeWav(out_filename, embedded_signal, Fs, N, verbosity);
+  free(embedded_signal);
 }
