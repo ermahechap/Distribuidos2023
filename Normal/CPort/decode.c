@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <time.h>
+#include <sys/time.h>
 #include <string.h>
 #include <math.h>
 #include <sndfile.h>
@@ -181,7 +181,8 @@ int main(int argc, char **argv) {
   int N = inInfo.frames;
 
   // --------------------- FFT -----------------------------
-  clock_t start_clock = clock(); // Timing start (for benchmarking)
+  struct timeval  tv1, tv2;
+  gettimeofday(&tv1, NULL); // Timing start (for benchmarking)
   // FFT
   if (verbosity) printf ("FFT over read data\n");
   fftw_complex *data_ft = fftw_malloc(sizeof(fftw_complex) * N);
@@ -240,11 +241,11 @@ int main(int argc, char **argv) {
   }
 
   if (timing) {
-    clock_t end_clock = clock(); // Timing end (for benchmarking)
-    double elapsed = (double)(end_clock - start_clock) * 1000.0 / CLOCKS_PER_SEC;
-    printf("elapsed: %f\n", elapsed);
+    gettimeofday(&tv2, NULL); // Timing end (for benchmarking)
+    printf ("elapsed: %f\n",
+      (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
+      (double) (tv2.tv_sec - tv1.tv_sec));
   }
-
   // Read outmsg file
   FILE *msgFptr;
   msgFptr = fopen(out_decoded_filename, "w");
