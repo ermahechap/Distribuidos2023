@@ -1,5 +1,6 @@
 /Outputs
 /Samples
+/MessageSamples
 *.m
 *.o
 *.wav

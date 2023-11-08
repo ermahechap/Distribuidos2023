@@ -1,10 +1,15 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
+#include <time.h>
 #include <string.h>
 #include <math.h>
 #include <sndfile.h>
 #include <fftw3.h>
 #include <complex.h>
+
+extern char *optarg;
+extern int optind, opterr, optopt;
 
 char *stringToBinary(char* s) {
   if(s == NULL) return ""; /* no input string */
@@ -132,12 +137,40 @@ void ifftshift(fftw_complex **dataPtr, int N){
   }
 }
 
-int main(void) {
+int main(int argc, char **argv) {
   // ------------------------ Setup --------------------
-  int verbosity = 1;
-  char in_filename[] = "../../Outputs/c_out.wav"; // Output filename
-  int n_chars = 21; // msg n characters
+  int verbosity = 0;
+  int timing = 0;
+  char *in_filename;
+  char *out_decoded_filename;
+  int n_chars;
 
+  // int verbosity = 1;
+  // char in_filename[] = "../../Outputs/c_out.wav"; // Output filename
+  // int n_chars = 21; // msg n characters
+
+  int opt;
+  while((opt = getopt(argc, argv, "i:l:o:vt")) != -1) {
+    switch (opt) {
+      case 'i': // in audio filepath
+        in_filename = optarg;
+        break;
+      case 'o': // out txt file
+        out_decoded_filename = optarg;
+        break;
+      case 'l': // 
+        n_chars = atoi(optarg);
+        break;
+      case 'v': // verbosity (optional, no argument)
+        verbosity = 1;
+        break;
+      case 't': // print execution time
+        timing = 1;
+        break;
+      default:
+        break;
+    }
+  }
   // ---------------------- Load WAV ---------------------
   SNDFILE *inFile; SF_INFO inInfo;
   double *data; // Not allocated yet
@@ -148,6 +181,7 @@ int main(void) {
   int N = inInfo.frames;
 
   // --------------------- FFT -----------------------------
+  clock_t start_clock = clock(); // Timing start (for benchmarking)
   // FFT
   if (verbosity) printf ("FFT over read data\n");
   fftw_complex *data_ft = fftw_malloc(sizeof(fftw_complex) * N);
@@ -198,8 +232,22 @@ int main(void) {
     }
     recovered_binary[k] = (b > c) ? '1': '0';
   }
+
+  char *recoveredMsg = binaryToString(recovered_binary);
   if (verbosity) {
     printf("Recovered Encoded Message: %s\n", recovered_binary);
-    printf("%s\n", binaryToString(recovered_binary));
+    printf("%s\n", recoveredMsg);
   }
+
+  if (timing) {
+    clock_t end_clock = clock(); // Timing end (for benchmarking)
+    double elapsed = (double)(end_clock - start_clock) * 1000.0 / CLOCKS_PER_SEC;
+    printf("elapsed: %f\n", elapsed);
+  }
+
+  // Read outmsg file
+  FILE *msgFptr;
+  msgFptr = fopen(out_decoded_filename, "w");
+  fprintf(msgFptr, recoveredMsg);
+
 }

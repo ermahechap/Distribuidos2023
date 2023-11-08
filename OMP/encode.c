@@ -1,11 +1,16 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
+#include <time.h>
 #include <string.h>
 #include <math.h>
 #include <sndfile.h>
 #include <fftw3.h>
 #include <omp.h>
 #include <complex.h>
+
+extern char *optarg;
+extern int optind, opterr, optopt;
 
 char *stringToBinary(char* s) {
   if(s == NULL) return ""; /* no input string */
@@ -85,7 +90,9 @@ void writeWav(char *path, double *data, int samplerate, int N, int verbosity) {
 
 double *magnitude(fftw_complex *data, int n) {
   double *m = malloc(sizeof(double) * n);
-  for (int i = 0; i < n; i++) {
+  int i;
+  #pragma omp for
+  for (i = 0; i < n; i++) {
     m[i] = sqrt(data[i][0]*data[i][0] + data[i][1]*data[i][1]);
   }
   return m;
@@ -93,7 +100,9 @@ double *magnitude(fftw_complex *data, int n) {
 
 double *angle(fftw_complex *data, int n) {
   double *a = malloc(sizeof(double) * n);
-  for (int i = 0; i < n; i++) {
+  int i;
+  #pragma omp for
+  for (i = 0; i < n; i++) {
     a[i] = atan2(data[i][1], data[i][0]);
   }
   return a;
@@ -141,21 +150,103 @@ void ifftshift(fftw_complex **dataPtr, int N){
   }
 }
 
-fftw_complex *encode_message(int N) {
-  fftw_complex *Y1 = fftw_malloc(sizeof(fftw_complex) * N);
+void encode_msg(double *X_embed, char *binary_msg, int a, int frame, int embed_sample_sz, int num_threads, int verbosity) {
+  int thread_id = omp_get_thread_num();
 
-  return Y1;
+  int redistribution = (thread_id < frame % num_threads) ? 1 : 0;
+  int base_split = frame / num_threads;
+  
+  int k = (base_split * thread_id) + fmin(thread_id, frame % num_threads); //start
+  int end = k + base_split + redistribution;
+
+  if(verbosity) printf("msg encoding thread: %d --> [%d, %d)\n", thread_id, k, end);
+
+  for (int k = 0; k < end; k++) { // row
+    double avg = 0;
+    for (int l = 0; l < embed_sample_sz; l++) { //col
+      avg += X_embed[k * embed_sample_sz + l];
+      //avg += X_abs[start_embed + (k * embed_sample_sz + l)];
+    }
+    avg /= embed_sample_sz;
+
+    // embed_sample_sz is small enough - Not paralellized
+    if (binary_msg[k] == '0') {
+      for (int l = 0; l < embed_sample_sz; l++) {
+        X_embed[k * embed_sample_sz + l] = avg;
+      }
+    } else {
+      for (int l = 0; l < embed_sample_sz / 2; l++) {
+        X_embed[k * embed_sample_sz + l] = a * avg;
+      }
+      for (int l = embed_sample_sz / 2; l < embed_sample_sz; l++){
+        X_embed[k * embed_sample_sz + l] = (2 - a) * avg;
+      }
+    }
+  }
 }
 
 
-int main(void) {
+int parseLenFromFilename (char *str) {
+  char *lastSlash = strrchr(str, '/');
+  char *lastDot = strrchr(str, '.');
+  if (lastSlash == NULL) lastSlash = str;
+  if (lastDot == NULL) lastDot = str + strlen(str);
+  lastSlash++;
+
+  int span = lastDot - lastSlash;
+  char filename[span]; memcpy(filename, lastSlash, span);
+  return atoi(filename);
+}
+
+int main(int argc, char **argv) {
   // ------------------------ Setup --------------------
-  int verbosity = 1;
-  char in_filename[] = "../Samples/thewho.wav"; // Input filename
-  char out_filename[] = "../Outputs/c_out.wav"; // Output filename
-  char message[] = "my name is slim 12OMP"; // Message
-  char *binary_msg = stringToBinary(message);
+  int verbosity = 0;
+  int timing = 0;
   int num_threads = omp_get_max_threads();
+  char *in_filename;
+  char *out_filename;
+  char *message_path;
+  // int verbosity = 1;
+  // char in_filename[] = "../Samples/thewho.wav"; // Input filename
+  // char out_filename[] = "../Outputs/c_out.wav"; // Output filename
+  // char message[] = "my name is slim 13OMP"; // Message
+  // int num_threads = omp_get_max_threads();
+
+  int opt;
+  while((opt = getopt(argc, argv, "i:m:n:o:vt")) != -1) {
+    switch (opt) {
+      case 'i': // in audio filepath
+        in_filename = optarg;
+        break;
+      case 'o': // out audio filepath
+        out_filename = optarg;
+        break;
+      case 'm': // message path (optional)
+        message_path = optarg;
+        break;
+      case 'n': // nthreads (optional)
+        num_threads = atoi(optarg);
+        break;
+      case 'v': // verbosity (optional, no argument)
+        verbosity = 1;
+        break;
+      case 't': // print execution time
+        timing = 1;
+        break;
+      default:
+        break;
+    }
+  }
+
+  // Read msg file
+  int msgLen = parseLenFromFilename(message_path);
+  FILE *msgFptr;
+  msgFptr = fopen(message_path, "r");
+  char message[msgLen];
+  fgets(message, msgLen, msgFptr);
+  
+  // convert message to binary
+  char *binary_msg = stringToBinary(message);
   
   // omp setup
   omp_set_num_threads(num_threads); // Set n threads globally
@@ -187,6 +278,7 @@ int main(void) {
   int N = inInfo.frames;
 
   // --------------------- FFT -----------------------------
+  clock_t start_clock = clock(); // Timing start (for benchmarking)
   // FFT
   if (verbosity) printf ("FFT over read data\n");
   fftw_complex *data_ft = fftw_malloc(sizeof(fftw_complex) * N);
@@ -225,34 +317,12 @@ int main(void) {
   double *X_embed = malloc(sizeof(double) * p);
   memcpy(X_embed, &X_abs[start_embed], sizeof(double) * p);
 
-  // Loop
-  #pragma omp for
-  for (int k = 0; k < frame; k++) { // row
-    double avg = 0;
-    for (int l = 0; l < embed_sample_sz; l++) { //col
-      avg += X_embed[k * embed_sample_sz + l];
-      //avg += X_abs[start_embed + (k * embed_sample_sz + l)];
-    }
-    avg /= embed_sample_sz;
+  #pragma omp parallel
+  {
+    encode_msg(X_embed, binary_msg, a, frame, embed_sample_sz, num_threads, verbosity);
+  }
 
-    // embed_sample_sz is small enough - Not paralellized
-    if (binary_msg[k] == '0') {
-      for (int l = 0; l < embed_sample_sz; l++) {
-        X_embed[k * embed_sample_sz + l] = avg;
-      }
-    } else {
-      for (int l = 0; l < embed_sample_sz / 2; l++) {
-        X_embed[k * embed_sample_sz + l] = a * avg;
-      }
-      for (int l = embed_sample_sz / 2; l < embed_sample_sz; l++){
-        X_embed[k * embed_sample_sz + l] = (2 - a) * avg;
-      }
-    }
-  }
-  // Y[range_2] = X_embed
-  for (int i = start_embed; i < end_embed; i++){
-    X_abs[i] = X_embed[i - start_embed];
-  }
+  memcpy(&X_abs[start_embed], X_embed, sizeof(double) * p); // Y[range_2] = X_embed
 
   // Multiply
   fftw_complex *Y1 = fftw_malloc(sizeof(fftw_complex)* N);
@@ -261,7 +331,8 @@ int main(void) {
     Y1[i][0] = X_abs[i] * cos(X_angle[i]); 
     Y1[i][1] = X_abs[i] * sin(X_angle[i]);
   }
-
+  
+  free(X_embed);
   free(X_abs);
   free(X_angle);
   
@@ -284,6 +355,12 @@ int main(void) {
   if (verbosity){
     printf("IFFT... DONE!\n");
     printf("--------------------------\n");
+  }
+
+  if (timing) {
+    clock_t end_clock = clock(); // Timing end (for benchmarking)
+    double elapsed = (double)(end_clock - start_clock) * 1000.0 / CLOCKS_PER_SEC;
+    printf("elapsed: %f\n", elapsed);
   }
   // -------------------- Write Embedded WAV -----------------
   writeWav(out_filename, embedded_signal, Fs, N, verbosity);
