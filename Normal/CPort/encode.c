@@ -254,34 +254,27 @@ int main(int argc, char **argv) {
   int start_embed = centre + embedding_freq + 1;
   int end_embed = centre + embedding_freq + p + 1;
   if (verbosity) printf("Embedding range: [%d, %d)\n", start_embed, end_embed);
-  double *X_embed = malloc(sizeof(double) * p);
-  memcpy(X_embed, &X_abs[start_embed], sizeof(double) * p);
 
   // Loop
   for (int k = 0; k < frame; k++) { // row
     double avg = 0;
     for (int l = 0; l < embed_sample_sz; l++) { //col
-      avg += X_embed[k * embed_sample_sz + l];
+      avg += X_abs[start_embed + (k * embed_sample_sz + l)];
     }
     avg /= (double)embed_sample_sz;
 
     if (binary_msg[k] == '0') {
       for (int l = 0; l < embed_sample_sz; l++) {
-        X_embed[k * embed_sample_sz + l] = avg;
+        X_abs[start_embed + (k * embed_sample_sz + l)] = avg;
       }
     } else {
       for (int l = 0; l < embed_sample_sz / 2; l++) {
-        X_embed[k * embed_sample_sz + l] = a * avg;
+        X_abs[start_embed + (k * embed_sample_sz + l)] = a * avg;
       }
       for (int l = embed_sample_sz / 2; l < embed_sample_sz; l++){
-        X_embed[k * embed_sample_sz + l] = (2 - a) * avg;
+        X_abs[start_embed + (k * embed_sample_sz + l)] = (2 - a) * avg;
       }
     }
-  }
-  // Y[range_2] = X_embed
-  int range_2[] = {centre + embedding_freq + 1, centre + embedding_freq + p + 1}; // [centre + freq, centre + freq + p]
-  for (int i = range_2[0]; i < range_2[1]; i++){
-    X_abs[i] = X_embed[i - range_2[0]];
   }
 
   // Multiply

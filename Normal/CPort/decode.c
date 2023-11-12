@@ -210,25 +210,23 @@ int main(int argc, char **argv) {
   int start_embed = centre + embedding_freq + 1;
   int end_embed = centre + embedding_freq + p + 1;
   if (verbosity) printf("Embedding range: [%d, %d)\n", start_embed, end_embed);
-  double *detect_window = malloc(sizeof(double) * p);
-  memcpy(detect_window, &Y2_abs[start_embed], sizeof(double) * p);
 
-  char *recovered_binary = malloc(frame * sizeof(char));
+  char *recovered_binary = malloc(frame * sizeof(char)); // recovered msg in binary string
   // Decode loop
   for (int k = 0; k < frame; k++){
     double avg = 0; int b = 0, c = 0;
     for (int l = 0; l < embed_sample_sz; l++) {
-      avg = avg + detect_window[k * embed_sample_sz + l];
+      avg = avg + Y2_abs[start_embed + (k * embed_sample_sz + l)];
     }
     avg = avg / embed_sample_sz;
-
-  for (int l = 0; l < embed_sample_sz / 2; l++){
-      if (detect_window[k * embed_sample_sz +l] >= (1 + a) * avg / 2) c++;
-      else b++;
-    }
+        
+    for (int l = 0; l < embed_sample_sz / 2; l++){
+        if (Y2_abs[start_embed + (k * embed_sample_sz + l)] >= (1 + a) * avg / 2) c++;
+        else b++;
+      }
 
     for (int l = embed_sample_sz / 2; l < embed_sample_sz - 1; l++){
-      if (detect_window[k * embed_sample_sz + l] < (3 - a) * avg / 2)c++;
+      if (Y2_abs[start_embed + (k * embed_sample_sz + l)] < (3 - a) * avg / 2)c++;
       else b++;
     }
     recovered_binary[k] = (b > c) ? '1': '0';
