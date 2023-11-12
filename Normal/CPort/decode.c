@@ -188,7 +188,6 @@ int main(int argc, char **argv) {
   fftw_complex *data_ft = fftw_malloc(sizeof(fftw_complex) * N);
   fftw_plan plan = fftw_plan_dft_r2c_1d(N, data, data_ft, FFTW_ESTIMATE); // Create fftw execution plan
   fftw_execute(plan);
-  fftshift(&data_ft, N); // Shift the data
 
   if (verbosity) {
     printf("FFT... DONE!\n");
@@ -200,15 +199,14 @@ int main(int argc, char **argv) {
   int frame = n_chars * 8;
   int embed_sample_sz = 10;
   int p = frame * embed_sample_sz;
-  int centre = N / 2 + 1;
   int embedding_freq = 5000;
   double a = 0.1;
 
   double *Y2_abs = magnitude(data_ft, N);
   double *Y2_angle = angle(data_ft, N);
 
-  int start_embed = centre + embedding_freq + 1;
-  int end_embed = centre + embedding_freq + p + 1;
+  int start_embed = embedding_freq + 1;
+  int end_embed = embedding_freq + p + 1;
   if (verbosity) printf("Embedding range: [%d, %d)\n", start_embed, end_embed);
 
   char *recovered_binary = malloc(frame * sizeof(char)); // recovered msg in binary string

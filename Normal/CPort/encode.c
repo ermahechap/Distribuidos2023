@@ -189,7 +189,7 @@ int main(int argc, char **argv) {
   FILE *msgFptr;
   msgFptr = fopen(message_path, "r");
   char message[msgLen];
-  fgets(message, msgLen, msgFptr);
+  fgets(message, msgLen + 1, msgFptr);
 
   // convert message to binary
   char *binary_msg = stringToBinary(message);
@@ -226,7 +226,6 @@ int main(int argc, char **argv) {
   fftw_plan plan = fftw_plan_dft_r2c_1d(N, data, data_ft, FFTW_ESTIMATE); // Create fftw execution plan
   // fftw_plan plan = fftw_plan_dft_1d(N, data, data_ft, FFTW_FORWARD, FFTW_ESTIMATE);
   fftw_execute(plan);
-  fftshift(&data_ft, N); // Shift the data
 
   if (verbosity) {
     printf("FFT... DONE!\n");
@@ -237,7 +236,6 @@ int main(int argc, char **argv) {
   int frame = strlen(binary_msg);
   int embed_sample_sz = 10;
   int p = frame * embed_sample_sz;
-  int centre = N / 2 + 1;
   int embedding_freq = 5000;
   double a = 0.1;
   if (verbosity) {
@@ -251,8 +249,8 @@ int main(int argc, char **argv) {
   double *X_angle = angle(data_ft, N);
   fftw_free(data_ft);
 
-  int start_embed = centre + embedding_freq + 1;
-  int end_embed = centre + embedding_freq + p + 1;
+  int start_embed = embedding_freq + 1;
+  int end_embed = embedding_freq + p + 1;
   if (verbosity) printf("Embedding range: [%d, %d)\n", start_embed, end_embed);
 
   // Loop
@@ -293,7 +291,6 @@ int main(int argc, char **argv) {
   }
   // --------------------- Unshift FFT -----------------------
   if (verbosity) printf("IFFT over embedded data!\n");
-  ifftshift(&Y1, N); // unshift
   double *embedded_signal = malloc(N * sizeof(double));
   fftw_plan inverse_plan = fftw_plan_dft_c2r_1d(N, Y1, embedded_signal, FFTW_ESTIMATE);
   fftw_execute(inverse_plan);
