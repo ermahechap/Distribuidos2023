@@ -289,8 +289,10 @@ int main(int argc, char **argv) {
     printf("Embedding in signal... DONE!\n");
     printf("--------------------------\n");
   }
-  // --------------------- Unshift FFT -----------------------
-  if (verbosity) printf("IFFT over embedded data!\n");
+
+  // ------------------------ IFFT --------------------------
+  if (verbosity) printf("signal restoration (IFFT)\n");
+
   double *embedded_signal = malloc(N * sizeof(double));
   fftw_plan inverse_plan = fftw_plan_dft_c2r_1d(N, Y1, embedded_signal, FFTW_ESTIMATE);
   fftw_execute(inverse_plan);
@@ -300,10 +302,9 @@ int main(int argc, char **argv) {
   for (int i = 0; i < N; i++) embedded_signal[i] = embedded_signal[i] / N;
   
   if (verbosity){
-    printf("IFFT... DONE!\n");
+    printf("signal restoration... DONE!\n");
     printf("--------------------------\n");
   }
-
   if (timing) {
     gettimeofday(&tv2, NULL); // Timing end (for benchmarking)
     printf ("elapsed: %f\n",

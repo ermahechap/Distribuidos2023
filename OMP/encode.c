@@ -150,7 +150,7 @@ void ifftshift(fftw_complex **dataPtr, int N){
   }
 }
 
-void encode_msg(double *X_embed, char *binary_msg, int a, int frame, int embed_sample_sz, int num_threads, int verbosity) {
+void encode_msg(double *X_embed, char *binary_msg, int a, int frame, int start_embed, int embed_sample_sz, int num_threads, int verbosity) {
   int thread_id = omp_get_thread_num();
 
   int redistribution = (thread_id < frame % num_threads) ? 1 : 0;
@@ -164,22 +164,21 @@ void encode_msg(double *X_embed, char *binary_msg, int a, int frame, int embed_s
   for (; k < end; k++) { // row
     double avg = 0;
     for (int l = 0; l < embed_sample_sz; l++) { //col
-      avg += X_embed[k * embed_sample_sz + l];
-      //avg += X_abs[start_embed + (k * embed_sample_sz + l)];
+      avg += X_embed[start_embed + (k * embed_sample_sz + l)];
     }
     avg /= embed_sample_sz;
 
     // embed_sample_sz is small enough - Not paralellized
     if (binary_msg[k] == '0') {
       for (int l = 0; l < embed_sample_sz; l++) {
-        X_embed[k * embed_sample_sz + l] = avg;
+        X_embed[start_embed + (k * embed_sample_sz + l)] = avg;
       }
     } else {
       for (int l = 0; l < embed_sample_sz / 2; l++) {
-        X_embed[k * embed_sample_sz + l] = a * avg;
+        X_embed[start_embed + (k * embed_sample_sz + l)] = a * avg;
       }
       for (int l = embed_sample_sz / 2; l < embed_sample_sz; l++){
-        X_embed[k * embed_sample_sz + l] = (2 - a) * avg;
+        X_embed[start_embed + (k * embed_sample_sz + l)] = (2 - a) * avg;
       }
     }
   }
@@ -243,7 +242,7 @@ int main(int argc, char **argv) {
   FILE *msgFptr;
   msgFptr = fopen(message_path, "r");
   char message[msgLen];
-  fgets(message, msgLen, msgFptr);
+  fgets(message, msgLen + 1, msgFptr);
   
   // convert message to binary
   char *binary_msg = stringToBinary(message);
@@ -286,7 +285,6 @@ int main(int argc, char **argv) {
   fftw_plan plan = fftw_plan_dft_r2c_1d(N, data, data_ft, FFTW_ESTIMATE); // Create fftw execution plan
   // fftw_plan plan = fftw_plan_dft_1d(N, data, data_ft, FFTW_FORWARD, FFTW_ESTIMATE);
   fftw_execute(plan);
-  fftshift(&data_ft, N); // Shift the data (OMP version)
 
   if (verbosity) {
     printf("FFT... DONE!\n");
@@ -298,7 +296,6 @@ int main(int argc, char **argv) {
   int frame = strlen(binary_msg);
   int embed_sample_sz = 10;
   int p = frame * embed_sample_sz;
-  int centre = N / 2 + 1;
   int embedding_freq = 5000;
   double a = 0.1;
   if (verbosity) {
@@ -312,18 +309,14 @@ int main(int argc, char **argv) {
   double *X_angle = angle(data_ft, N);
   fftw_free(data_ft);
 
-  int start_embed = centre + embedding_freq + 1;
-  int end_embed = centre + embedding_freq + p + 1;
+  int start_embed = embedding_freq + 1;
+  int end_embed = embedding_freq + p + 1;
   if (verbosity) printf("Embedding range: [%d, %d)\n", start_embed, end_embed);
-  double *X_embed = malloc(sizeof(double) * p);
-  memcpy(X_embed, &X_abs[start_embed], sizeof(double) * p);
 
   #pragma omp parallel
   {
-    encode_msg(X_embed, binary_msg, a, frame, embed_sample_sz, num_threads, verbosity);
+    encode_msg(X_abs, binary_msg, a, frame, start_embed, embed_sample_sz, num_threads, verbosity);
   }
-
-  memcpy(&X_abs[start_embed], X_embed, sizeof(double) * p); // Y[range_2] = X_embed
 
   // Multiply
   fftw_complex *Y1 = fftw_malloc(sizeof(fftw_complex)* N);
@@ -333,7 +326,6 @@ int main(int argc, char **argv) {
     Y1[i][1] = X_abs[i] * sin(X_angle[i]);
   }
   
-  free(X_embed);
   free(X_abs);
   free(X_angle);
   
@@ -341,10 +333,9 @@ int main(int argc, char **argv) {
     printf("Embedding in signal... DONE!\n");
     printf("--------------------------\n");
   }
-
-  // --------------------- Unshift FFT -----------------------
-  if (verbosity) printf("IFFT over embedded data!\n");
-  ifftshift(&Y1, N); // unshift
+  
+  // ------------------------ IFFT --------------------------
+  if (verbosity) printf("signal restoration (IFFT)\n");
   double *embedded_signal = malloc(N * sizeof(double));
   fftw_plan inverse_plan = fftw_plan_dft_c2r_1d(N, Y1, embedded_signal, FFTW_ESTIMATE);
   fftw_execute(inverse_plan);
@@ -352,12 +343,11 @@ int main(int argc, char **argv) {
 
   // Normalization
   for (int i = 0; i < N; i++) embedded_signal[i] = embedded_signal[i] / N;
-  
+
   if (verbosity){
-    printf("IFFT... DONE!\n");
+    printf("signal restoration... DONE!\n");
     printf("--------------------------\n");
   }
-
   if (timing) {
     gettimeofday(&tv2, NULL); // Timing end (for benchmarking)
     printf ("elapsed: %f\n",
