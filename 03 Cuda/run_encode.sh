@@ -1,0 +1,1 @@
+./watermarking -i "../Samples/thewho.wav" -o "../Outputs/Audio/c_out.wav" -m "../MessageSamples/100.txt" -n 256 -v

@@ -88,6 +88,18 @@ void writeWav(char *path, double *data, int samplerate, int N, int verbosity) {
   if (verbosity) printf("File Writing... DONE!\n", path);
 }
 
+int parseLenFromFilename (char *str) {
+  char *lastSlash = strrchr(str, '/');
+  char *lastDot = strrchr(str, '.');
+  if (lastSlash == NULL) lastSlash = str;
+  if (lastDot == NULL) lastDot = str + strlen(str);
+  lastSlash++;
+
+  int span = lastDot - lastSlash;
+  char filename[span]; memcpy(filename, lastSlash, span);
+  return atoi(filename);
+}
+
 double *magnitude(fftw_complex *data, int n) {
   double *m = malloc(sizeof(double) * n);
   int i;
@@ -150,7 +162,7 @@ void ifftshift(fftw_complex **dataPtr, int N){
   }
 }
 
-void encode_msg(double *X_embed, char *binary_msg, int a, int frame, int start_embed, int embed_sample_sz, int num_threads, int verbosity) {
+void encode_msg(double *X_embed, char *binary_msg, double a, int frame, int start_embed, int embed_sample_sz, int num_threads, int verbosity) {
   int thread_id = omp_get_thread_num();
 
   int redistribution = (thread_id < frame % num_threads) ? 1 : 0;
@@ -184,19 +196,6 @@ void encode_msg(double *X_embed, char *binary_msg, int a, int frame, int start_e
   }
 }
 
-
-int parseLenFromFilename (char *str) {
-  char *lastSlash = strrchr(str, '/');
-  char *lastDot = strrchr(str, '.');
-  if (lastSlash == NULL) lastSlash = str;
-  if (lastDot == NULL) lastDot = str + strlen(str);
-  lastSlash++;
-
-  int span = lastDot - lastSlash;
-  char filename[span]; memcpy(filename, lastSlash, span);
-  return atoi(filename);
-}
-
 int main(int argc, char **argv) {
   // ------------------------ Setup --------------------
   int verbosity = 0;
@@ -205,11 +204,6 @@ int main(int argc, char **argv) {
   char *in_filename;
   char *out_filename;
   char *message_path;
-  // int verbosity = 1;
-  // char in_filename[] = "../Samples/thewho.wav"; // Input filename
-  // char out_filename[] = "../Outputs/c_out.wav"; // Output filename
-  // char message[] = "my name is slim 13OMP"; // Message
-  // int num_threads = omp_get_max_threads();
 
   int opt;
   while((opt = getopt(argc, argv, "i:m:n:o:vt")) != -1) {
@@ -220,16 +214,16 @@ int main(int argc, char **argv) {
       case 'o': // out audio filepath
         out_filename = optarg;
         break;
-      case 'm': // message path (optional)
+      case 'm': // message path
         message_path = optarg;
         break;
-      case 'n': // nthreads (optional)
+      case 'n': // nthreads
         num_threads = atoi(optarg);
         break;
       case 'v': // verbosity (optional, no argument)
         verbosity = 1;
         break;
-      case 't': // print execution time
+      case 't': // print execution time (optional, no argument)
         timing = 1;
         break;
       default:
@@ -298,6 +292,7 @@ int main(int argc, char **argv) {
   int p = frame * embed_sample_sz;
   int embedding_freq = 5000;
   double a = 0.1;
+  
   if (verbosity) {
     printf("Settings:\n");
     printf("frame: %d\n", frame);
