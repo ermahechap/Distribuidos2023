@@ -1,0 +1,10 @@
+duration: 01, msg_len: 100, iteration: 1, elapsed: 0.457296
+duration: 01, msg_len: 1000, iteration: 1, elapsed: 0.590476
+duration: 01, msg_len: 10000, iteration: 1, elapsed: 0.495940
+duration: 01, msg_len: 100000, iteration: 1, elapsed: too_large
+duration: 01, msg_len: 1000000, iteration: 1, elapsed: too_large
+duration: 05, msg_len: 100, iteration: 1, elapsed: 1.690592
+duration: 05, msg_len: 1000, iteration: 1, elapsed: 1.788719
+duration: 05, msg_len: 10000, iteration: 1, elapsed: 1.708642
+duration: 05, msg_len: 100000, iteration: 1, elapsed: too_large
+duration: 05, msg_len: 1000000, iteration: 1, elapsed: too_large

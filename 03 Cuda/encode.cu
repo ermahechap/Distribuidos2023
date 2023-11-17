@@ -352,6 +352,13 @@ int main(int argc, char **argv) {
   int p = frame * embed_sample_sz; // total number of samples used for embedding data
   int embedding_freq = 5000; // in hz
   float a = 0.1;
+  
+  int start_embed = embedding_freq + 1;
+  int end_embed = embedding_freq + p + 1;
+  if(end_embed > N / 2 + 1){
+    if(timing) printf("elapsed: too_large\n");
+    return 1;
+  }
 
   if (verbosity) {
     printf("Settings:\n");
@@ -370,10 +377,7 @@ int main(int argc, char **argv) {
   if(verbosity) printf("getMagnitudeAngle<<<%d, %d>>>\n", nBlocks, nThreads);
   getMagnitudeAngle<<<nBlocks, nThreads>>>(GPU_data_ft, GPU_X_abs, GPU_X_angle, N);
 
-  int start_embed = embedding_freq + 1;
-  int end_embed = embedding_freq + p + 1;
   if (verbosity) printf("Embedding range: [%d, %d)\n", start_embed, end_embed);
-
 
   nBlocks = CALCULATE_BLOCKS(nThreads, msgLen);
   if (nBlocks == 0) nBlocks = 1;

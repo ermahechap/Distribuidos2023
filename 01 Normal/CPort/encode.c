@@ -238,6 +238,17 @@ int main(int argc, char **argv) {
   int p = frame * embed_sample_sz;
   int embedding_freq = 5000;
   double a = 0.1;
+  
+  int start_embed = embedding_freq + 1;
+  int end_embed = embedding_freq + p + 1;
+  if (verbosity) printf("Embedding range: [%d, %d)\n", start_embed, end_embed);
+
+  if(end_embed > N / 2 + 1){
+    if(timing) printf("elapsed: too_large\n");
+    return 1;
+  }
+
+  
   if (verbosity) {
     printf("Settings:\n");
     printf("frame: %d\n", frame);
@@ -249,10 +260,7 @@ int main(int argc, char **argv) {
   double *X_angle = angle(data_ft, N);
   fftw_free(data_ft);
 
-  int start_embed = embedding_freq + 1;
-  int end_embed = embedding_freq + p + 1;
-  if (verbosity) printf("Embedding range: [%d, %d)\n", start_embed, end_embed);
-
+  
   // Loop
   for (int k = 0; k < frame; k++) { // row
     double avg = 0;
