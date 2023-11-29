@@ -1,5 +1,5 @@
 #!/bin/bash
-n_iters=1
+n_iters=5
 audio_durations=("01" "05" "10" "20" "30" "40")
 msg_lengths=("100" "1000" "10000" "100000" "1000000")
 threads=(1 2 4 8 16)

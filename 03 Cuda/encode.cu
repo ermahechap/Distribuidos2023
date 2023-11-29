@@ -422,6 +422,7 @@ int main(int argc, char **argv) {
   cudaFree(GPU_Y1);
   cudaFree(GPU_embedded_signal);
   
+  cudaDeviceSynchronize();
   if (timing) {
     gettimeofday(&tv2, NULL); // Timing end (for benchmarking)
     printf ("elapsed: %f\n",
