@@ -115,7 +115,8 @@ int parseLenFromFilename (char *str) {
 }
 
 // It should return the message already encoded
-double *encode_msg(double *data, int N, char *binary_msg, int n_ranks, int rank, int verbosity) {
+double *encode_msg(double *data, int N, char *binary_msg, int n_ranks, int rank, int verbosity, int timing) {
+  int error = 0;
   // ------------------ FFT --------------------
   fftw_complex *data_ft = fftw_malloc(sizeof(fftw_complex) * N);
   fftw_plan plan = fftw_plan_dft_r2c_1d(N, data, data_ft, FFTW_ESTIMATE);
@@ -130,6 +131,15 @@ double *encode_msg(double *data, int N, char *binary_msg, int n_ranks, int rank,
 
   int start_embed = embedding_freq + 1;
   int end_embed = embedding_freq + p + 1;
+
+  // Handle when the message to encode is larger than the embedding space (aka. freq space)
+  if(end_embed > N / 2 + 1) error = 1;
+  MPI_Bcast(&error, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  if (error == 1) {
+    if (rank == 0 && timing) printf("elapsed: too_large\n");
+    MPI_Finalize();
+    exit(0);
+  }
 
   double *X_abs = magnitude(data_ft, N);
   double *X_angle = angle(data_ft, N);
@@ -178,25 +188,49 @@ double *encode_msg(double *data, int N, char *binary_msg, int n_ranks, int rank,
 
 
 int main(int argc, char** argv) {
-  int verbosity = 1;
+  int verbosity = 0;
   int timing = 0;
-  // char *in_filename;
-  // char *out_filename;
-  // char *message_path;
-  char in_filename[] = "../Samples/custom_testcases/05.wav"; // Input filename
-  char out_filename[] = "../Outputs/c_out.wav"; // Output filename
-  char message_path[] = "../MessageSamples/100.txt"; // Message
-  
-  int rank, n_ranks;
-  MPI_Status status;
+  char *in_filename;
+  char *out_filename;
+  char *message_path;
+  // char in_filename[] = "../Samples/custom_testcases/05.wav"; // Input filename
+  // char out_filename[] = "../Outputs/c_out.wav"; // Output filename
+  // char message_path[] = "../MessageSamples/100.txt"; // Message
 
+  int opt;
+  while((opt = getopt(argc, argv, "i:m:o:vt")) != -1) {
+    switch (opt) {
+      case 'i': // in audio filepath
+        in_filename = optarg;
+        break;
+      case 'o': // out audio filepath
+        out_filename = optarg;
+        break;
+      case 'm': // message path
+        message_path = optarg;
+        break;
+      case 'v': // verbosity (optional, no argument)
+        verbosity = 1;
+        break;
+      case 't': // print execution time (optional, no argument)
+        timing = 1;
+        break;
+      default:
+        break;
+    }
+  }
+
+  // Start MPI
+  int rank, n_ranks;
   MPI_Init(&argc, &argv);
+  MPI_Status status;
   MPI_Comm_size(MPI_COMM_WORLD, &n_ranks);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  //TODO - read params
+
 
   // RANK 0 params
   double *data; // Not allocated yet
+  struct timeval  tv1, tv2;
   int N;
   int Fs;
 
@@ -244,6 +278,8 @@ int main(int argc, char** argv) {
 
     Fs = inInfo.samplerate;
     N = inInfo.frames;
+
+    gettimeofday(&tv1, NULL); // Timing start (for benchmarking)
 
     for (int i = n_ranks - 1; i >= 0; i--) {
       // Split message in n ranks
@@ -297,18 +333,28 @@ int main(int argc, char** argv) {
     printf("RANK %d - msg_start: %d, msg_end: %d, data_start: %d, data_end: %d\n", rank, msg_start, msg_end, data_start, data_end);
     printf(">>> Start encoding for chunk in RANK %d\n", rank);
   }
-  double *embeded_chunk_data = encode_msg(chunk_data, data_span, chunk_binary_msg, n_ranks, rank, verbosity);
+  double *embeded_chunk_data = encode_msg(chunk_data, data_span, chunk_binary_msg, n_ranks, rank, verbosity, timing);
   if (verbosity) {
     printf("<<< End encoding for chunk in RANK %d\n", rank);
   }
 
+  // Initialize array to receive data
   double *embedded_signal = NULL;
   if (rank == 0){
     embedded_signal = malloc(N * sizeof(double));
   }
+
+  // Gather ifft results and reconstruct audio
   MPI_Gather(embeded_chunk_data, data_span, MPI_DOUBLE,
              embedded_signal, data_span, MPI_DOUBLE, 0, MPI_COMM_WORLD);
   if (rank == 0) {
+    if (timing) {
+    gettimeofday(&tv2, NULL); // Timing end (for benchmarking)
+    printf ("elapsed: %f\n",
+      (double) (tv2.tv_usec - tv1.tv_usec) / 1000000 +
+      (double) (tv2.tv_sec - tv1.tv_sec));
+    }
+
     // -------------------- Write Embedded WAV -----------------
     writeWav(out_filename, embedded_signal, Fs, N, verbosity);
     free(embedded_signal);
