@@ -1,0 +1,47 @@
+# Host 1 - MASTER
+Host host1
+  HostName host1
+  User ermahechap
+  IdentityFile ~/.ssh/cgp_key_nopass
+
+# Host 2
+Host host2
+  HostName host2
+  User ermahechap
+  IdentityFile ~/.ssh/cgp_key_nopass
+
+# Host 3
+Host host3
+  HostName host3
+  User ermahechap
+  IdentityFile ~/.ssh/cgp_key_nopass
+
+# Host 4
+Host host4
+  HostName host4
+  User ermahechap
+  IdentityFile ~/.ssh/cgp_key_nopass
+
+# Host 5
+Host host5
+  HostName host5
+  User ermahechap
+  IdentityFile ~/.ssh/cgp_key_nopass
+
+# Host 6
+Host host6
+  HostName host6
+  User ermahechap
+  IdentityFile ~/.ssh/cgp_key_nopass
+
+# Host 7
+Host host7
+  HostName host7
+  User ermahechap
+  IdentityFile ~/.ssh/cgp_key_nopass
+
+# Host 8
+Host host8
+  HostName host8
+  User ermahechap
+  IdentityFile ~/.ssh/cgp_key_nopass
